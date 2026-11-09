@@ -748,12 +748,14 @@ function prepararPersonajes() {
 }
 
 // Frases de una página, cada una con quién la dice. Una frase cortada por el cambio de página se lee entera al empezar la siguiente.
-function trozos(p) {
+// arrastre = true cuando la voz viene leyendo de la página anterior: la frase cortada se lee entera.
+// Si se empieza a escuchar en esta página, se empieza por la primera palabra que se ve en ella.
+function trozos(p, arrastre = true) {
   prepararPersonajes();
   const its = analizar(p), out = [];
   const segsDe = (pp, it) => (SEGS[pp][it.b] || [{ t: it.raw, who: null }]);
   let carry = null;
-  if (p > 1 && its.length) {
+  if (arrastre && p > 1 && its.length) {
     const prev = analizar(p - 1), last = prev[prev.length - 1];
     if (sigue(last, its[0])) {
       const sg = segsDe(p - 1, last), fr = frases(sg[sg.length - 1].t.replace(/\s+/g, " ").trim());
@@ -867,25 +869,52 @@ function decir() {
   if (voz.i >= voz.cola.length) { const s = voz.sig; voz.cola = []; voz.sig = null; s ? s() : pararVoz(); return; }
   const c = voz.cola[voz.i];
   if (c.on) c.on();
-  const u = new SpeechSynthesisUtterance(prosa(c.text));
   const hablado = prosa(c.text);
-  situarFrase(c, hablado);
-  if (c.enAntes) situarFrase(c.antes, hablado);
-  let nPal = 0;
-  u.onboundary = (e) => {
-    if ((e.name && e.name !== "word") || voz.u !== u) return;
-    const w = (hablado.slice(e.charIndex).match(/^[\p{L}\p{N}]+/u) || [])[0];
-    if (!w) return;
-    const n = nPal++;
-    if (n < (c.saltar || 0)) { if (c.enAntes) marcarPalabra(c.antes, normal(w)); return; } // palabra de la página anterior
-    if (c.enAntes && c.alNuevo) c.alNuevo(); // primera palabra de la página nueva: ahora se pasa la hoja
-    marcarPalabra(c, normal(w));
-  };
+  const u = new SpeechSynthesisUtterance(hablado);
   const pj = personajes && c.who ? PJID[c.who] : null;
   const v = pj ? vozPara(pj.g) : vozActual(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
   if (pj) { u.rate = vel * pj.vel * (estilo === "poeta" ? 0.95 : 1); u.pitch = pj.tono; }
   else if (estilo === "poeta") { u.rate = vel * 0.9; u.pitch = 0.8; } else { u.rate = vel; u.pitch = 0.9; }
+
+  // ---- amarillo palabra a palabra ----
+  situarFrase(c, hablado);
+  if (c.enAntes) situarFrase(c.antes, hablado);
+  const pals = [...hablado.matchAll(/[\p{L}\p{N}]+/gu)];
+  let hecho = -1; // última palabra marcada
+  const alPalabra = (n) => { // marca todas las palabras hasta la n, en orden
+    for (let k = hecho + 1; k <= n && k < pals.length; k++) {
+      const w = normal(pals[k][0]);
+      if (k < (c.saltar || 0)) { if (c.enAntes) marcarPalabra(c.antes, w); continue; } // palabra de la página anterior
+      if (c.enAntes && c.alNuevo) c.alNuevo(); // primera palabra de la página nueva: ahora se pasa la hoja
+      marcarPalabra(c, w);
+    }
+    hecho = Math.max(hecho, n);
+  };
+  const clave = (v && v.voiceURI) || "defecto";
+  // 1) la voz avisa de cada palabra que dice (voces de Edge y de Windows)
+  u.onboundary = (e) => {
+    if ((e.name && e.name !== "word") || voz.u !== u) return;
+    u.real = true; conAvisos[clave] = true; clearInterval(u.reloj);
+    const n = pals.findIndex(m => m.index + m[0].length > e.charIndex);
+    if (n >= 0) alPalabra(n);
+  };
+  // 2) si la voz no avisa (p. ej. "Google español"), se calcula por dónde va según su ritmo, que se mide frase a frase
+  const iniciarReloj = () => {
+    if (conAvisos[clave] || u.reloj) return;
+    const t0 = performance.now(), cps = ritmo(clave) * u.rate;
+    u.reloj = setInterval(() => {
+      if (voz.u !== u || u.real || voz.pausa) { clearInterval(u.reloj); return; }
+      const pos = (performance.now() - t0) / 1000 * cps;
+      let n = -1; for (let k = 0; k < pals.length && pals[k].index <= pos; k++) n = k;
+      if (n > hecho) alPalabra(n);
+    }, 70);
+  };
+  u.onstart = () => { u.t0 = performance.now(); iniciarReloj(); };
+  setTimeout(() => { if (voz.u === u && !u.t0) { u.t0 = performance.now(); iniciarReloj(); } }, 450);
+
   u.onend = () => {
+    clearInterval(u.reloj);
+    if (u.t0 && !u.real && !u.cancelado) { const s = (performance.now() - u.t0) / 1000; if (s > 0.8) ajustarRitmo(clave, hablado.length / s / u.rate); }
     if (u.cancelado || voz.u !== u) return;
     voz.errores = 0; voz.i++;
     voz.espera = setTimeout(decir, (c.pausa ?? 450) / Math.max(vel, 0.7)); // respiro entre frases
@@ -897,7 +926,16 @@ function decir() {
   };
   voz.u = u; synth.speak(u);
 }
-function cortar() { clearTimeout(voz.espera); if (voz.u) voz.u.cancelado = true; voz.u = null; if (synth) synth.cancel(); }
+// Ritmo de cada voz en letras por segundo (a velocidad 1), aprendido al medir cuánto tarda en decir cada frase.
+const conAvisos = {};
+const RITMO = store.get("ritmo", {});
+const ritmo = (k) => RITMO[k] || 14;
+function ajustarRitmo(k, cps) {
+  if (!(cps > 5 && cps < 40)) return;
+  RITMO[k] = RITMO[k] ? RITMO[k] * 0.7 + cps * 0.3 : cps;
+  store.set("ritmo", RITMO);
+}
+function cortar() { clearTimeout(voz.espera); if (voz.u) { voz.u.cancelado = true; clearInterval(voz.u.reloj); } voz.u = null; if (synth) synth.cancel(); }
 function hablar(cola, sig, fuente) {
   cortar(); Object.assign(voz, { cola, i: 0, sig, activo: true, pausa: false, fuente });
   uiVoz(); setTimeout(decir, 80);
@@ -984,7 +1022,7 @@ function leerLibro(p, seguir = false) {
   if (!synth) { toast("Este navegador no puede leer en voz alta"); return; }
   p = Math.max(1, Math.min(N, p));
   for (const k in ptrs) if (k.startsWith(p + ":")) delete ptrs[k];
-  const cola = trozos(p);
+  const cola = trozos(p, seguir);
   const mostrar = (v, c) => {
     if (!seVe(v.p)) ir(v.p, true, true);
     resaltar(v); voz.etiqueta = `Página ${v.p}` + (personajes && c.who && PJID[c.who].nombre ? ` · ${PJID[c.who].nombre}` : ""); uiVoz();
