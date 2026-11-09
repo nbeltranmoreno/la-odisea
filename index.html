@@ -771,7 +771,15 @@ function trozos(p) {
       if (corta && j === sg.length - 1 && fr.length) fr = fr.slice(0, -1);
       const r = recitar(fr, { p, b: it.b, titulo: it.titulo, who: x.who });
       if (j === 0 && r.length) r[0].ini = true; // primera frase del párrafo: el resaltado empieza desde el principio
-      if (idx === 0 && resto > 0) for (const c of r) { if (resto <= 0) break; c.saltar = Math.min(resto, contarPalabras(c.text)); resto -= c.saltar; }
+      // el párrafo sigue en la página siguiente: no hacer pausa de fin de párrafo antes de pasar la página
+      if (corta && j === sg.length - 1 && r.length) {
+        const u = r[r.length - 1];
+        u.pausa = /[.!?…»]\s*$/.test(u.text) ? PAUSAS[estilo].frase : PAUSAS[estilo].verso;
+      }
+      if (idx === 0 && resto > 0) {
+        const antes = { p: p - 1, b: analizar(p - 1).slice(-1)[0].b }; // dónde están esas palabras: final de la página anterior
+        for (const c of r) { if (resto <= 0) break; c.saltar = Math.min(resto, contarPalabras(c.text)); resto -= c.saltar; c.antes = antes; }
+      }
       if (j < sg.length - 1 && r.length) r[r.length - 1].pausa = Math.min(r[r.length - 1].pausa, PAUSAS[estilo].frase);
       out.push(...r);
     });
@@ -862,12 +870,15 @@ function decir() {
   const u = new SpeechSynthesisUtterance(prosa(c.text));
   const hablado = prosa(c.text);
   situarFrase(c, hablado);
+  if (c.enAntes) situarFrase(c.antes, hablado);
   let nPal = 0;
   u.onboundary = (e) => {
     if ((e.name && e.name !== "word") || voz.u !== u) return;
     const w = (hablado.slice(e.charIndex).match(/^[\p{L}\p{N}]+/u) || [])[0];
     if (!w) return;
-    if (nPal++ < (c.saltar || 0)) return; // palabra de la página anterior
+    const n = nPal++;
+    if (n < (c.saltar || 0)) { if (c.enAntes) marcarPalabra(c.antes, normal(w)); return; } // palabra de la página anterior
+    if (c.enAntes && c.alNuevo) c.alNuevo(); // primera palabra de la página nueva: ahora se pasa la hoja
     marcarPalabra(c, normal(w));
   };
   const pj = personajes && c.who ? PJID[c.who] : null;
@@ -968,16 +979,24 @@ function aplicarResaltado(root) {
   });
 }
 function seVe(p) { return doble ? caras(pliegoDe(pagina)).includes(p) : pagina === p; }
-function leerLibro(p) {
+// seguir = true cuando la voz llega sola al final de una página: la siguiente se encadena sin cortar ni reiniciar la voz
+function leerLibro(p, seguir = false) {
   if (!synth) { toast("Este navegador no puede leer en voz alta"); return; }
   p = Math.max(1, Math.min(N, p));
   for (const k in ptrs) if (k.startsWith(p + ":")) delete ptrs[k];
   const cola = trozos(p);
-  cola.forEach(c => c.on = () => {
-    if (!seVe(c.p)) ir(c.p, true, true);
-    resaltar(c); voz.etiqueta = `Página ${c.p}` + (personajes && c.who && PJID[c.who].nombre ? ` · ${PJID[c.who].nombre}` : ""); uiVoz();
+  const mostrar = (v, c) => {
+    if (!seVe(v.p)) ir(v.p, true, true);
+    resaltar(v); voz.etiqueta = `Página ${v.p}` + (personajes && c.who && PJID[c.who].nombre ? ` · ${PJID[c.who].nombre}` : ""); uiVoz();
+  };
+  cola.forEach(c => {
+    // si la frase empezó en la página anterior y esa página está a la vista, la hoja se pasa al llegar a la primera palabra nueva
+    c.on = () => { c.enAntes = !!(c.antes && seVe(c.antes.p)); mostrar(c.enAntes ? c.antes : c, c); };
+    c.alNuevo = () => { c.enAntes = false; mostrar(c, c); };
   });
-  hablar(cola, () => p < N ? leerLibro(p + 1) : (pararVoz(), toast("Fin del libro")), "libro");
+  const sig = () => p < N ? leerLibro(p + 1, true) : (pararVoz(), toast("Fin del libro"));
+  if (seguir && voz.activo && voz.fuente === "libro") { Object.assign(voz, { cola, i: 0, sig }); decir(); }
+  else hablar(cola, sig, "libro");
 }
 function alternarVoz() {
   if (voz.activo) { pararVoz(); return; }
