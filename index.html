@@ -187,8 +187,10 @@ body.noche .txt img{mix-blend-mode:normal;filter:invert(.88) sepia(.25) hue-rota
 #player select{background:rgba(255,255,255,.08);color:inherit;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:6px;font:inherit;font-size:14px;max-width:170px}
 #player select option{background:#1d1510}
 #resumen.abierto ~ #player{bottom:16px}
-.txt .leyendo{background:rgba(201,140,60,.24);box-shadow:0 0 0 .25em rgba(201,140,60,.24);border-radius:2px}
-body.noche .txt .leyendo{background:rgba(208,138,95,.2);box-shadow:0 0 0 .25em rgba(208,138,95,.2)}
+.txt .leyendo{background:rgba(201,140,60,.11);box-shadow:0 0 0 .25em rgba(201,140,60,.11);border-radius:2px}
+body.noche .txt .leyendo{background:rgba(208,138,95,.1);box-shadow:0 0 0 .25em rgba(208,138,95,.1)}
+::highlight(palabra){background-color:#f6c945;color:#1a1208}
+#player .ib.on{color:#e3a857}
 #bVoz.on{color:#e3a857}
 </style>
 </head>
@@ -244,6 +246,7 @@ body.noche .txt .leyendo{background:rgba(208,138,95,.2);box-shadow:0 0 0 .25em r
     <option value="0.7">Muy pausado</option><option value="0.8">Pausado</option><option value="0.88" selected>Narración</option><option value="1">Normal</option><option value="1.15">Rápido</option>
   </select>
   <select id="vVoz" title="Voz"></select>
+  <button class="ib" id="vPj" title="Voces de personajes"><svg viewBox="0 0 24 24"><path d="M4 5c5 2 11 2 16 0v6a8 8 0 0 1-16 0zM8.5 10h1.5M14 10h1.5M9 14.5c2 1.5 4 1.5 6 0"/></svg></button>
   <button class="ib" id="vCerrar" title="Dejar de escuchar"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
 </div>
 
@@ -604,20 +607,170 @@ function analizar(p) {
   return cachePag[p] = items;
 }
 const sigue = (a, b) => a && b && a.plain && b.plain && !FIN.test(a.raw); // el párrafo continúa en la página siguiente
-// Frases de una página. Una frase cortada por el cambio de página se lee entera al empezar la siguiente.
+
+// =================== PERSONAJES ===================
+// Nombres y apodos con que los llama la traducción de Segalá, voz de hombre (h) o de mujer (m), tono y velocidad.
+const PJ = [
+  ["jupiter",   "Júpiter",   "h", 0.55, 0.85, "jupiter|saturnio|cronion|padre de los hombres y de los dioses|que amontona las nubes|amontonador de nubes"],
+  ["neptuno",   "Neptuno",   "h", 0.6,  0.85, "neptuno|que sacude la tierra|que bate la tierra|que cine la tierra|enosigeo"],
+  ["minerva",   "Minerva",   "m", 1.0,  0.95, "minerva|palas|de los brillantes ojos|mentor|mentes"],
+  ["mercurio",  "Mercurio",  "h", 1.15, 1.0,  "mercurio|argicida"],
+  ["ulises",    "Ulises",    "h", 0.95, 0.95, "ulises|laertiada"],
+  ["telemaco",  "Telémaco",  "h", 1.18, 1.0,  "telemaco"],
+  ["penelope",  "Penélope",  "m", 1.0,  0.9,  "penelope|hija de icario"],
+  ["calipso",   "Calipso",   "m", 1.15, 0.92, "calipso"],
+  ["circe",     "Circe",     "m", 0.85, 0.9,  "circe"],
+  ["polifemo",  "Polifemo",  "h", 0.45, 0.8,  "polifemo|ciclope|varon gigantesco|monstruo"],
+  ["nestor",    "Néstor",    "h", 0.72, 0.82, "nestor|gerenio"],
+  ["menelao",   "Menelao",   "h", 0.85, 0.92, "menelao|atrida"],
+  ["agamenon",  "Agamenón",  "h", 0.7,  0.88, "agamenon"],
+  ["aquiles",   "Aquiles",   "h", 0.8,  0.92, "aquiles|pelida"],
+  ["helena",    "Helena",    "m", 1.08, 0.95, "helena"],
+  ["nausicaa",  "Nausícaa",  "m", 1.3,  1.0,  "nausicaa"],
+  ["alcinoo",   "Alcínoo",   "h", 0.8,  0.9,  "alcinoo"],
+  ["areta",     "Areta",     "m", 0.95, 0.92, "areta"],
+  ["eumeo",     "Eumeo",     "h", 0.88, 0.92, "eumeo|porquerizo|porquero|mayoral de los porqueros"],
+  ["euriclea",  "Euriclea",  "m", 0.8,  0.85, "euriclea|nodriza"],
+  ["antinoo",   "Antínoo",   "h", 1.0,  1.05, "antinoo"],
+  ["eurimaco",  "Eurímaco",  "h", 1.08, 1.02, "eurimaco"],
+  ["anfinomo",  "Anfínomo",  "h", 0.95, 0.95, "anfinomo"],
+  ["euriloco",  "Euríloco",  "h", 1.02, 1.0,  "euriloco"],
+  ["tiresias",  "Tiresias",  "h", 0.45, 0.78, "tiresias"],
+  ["laertes",   "Laertes",   "h", 0.68, 0.8,  "laertes"],
+  ["anticlea",  "Anticlea",  "m", 0.85, 0.88, "anticlea"],
+  ["proteo",    "Proteo",    "h", 0.6,  0.85, "proteo|anciano del mar|viejo del mar"],
+  ["eolo",      "Eolo",      "h", 0.8,  0.9,  "eolo"],
+  ["leucotea",  "Ino Leucotea", "m", 1.1, 0.95, "leucotea|ino"],
+  ["sirenas",   "las Sirenas", "m", 1.3, 0.85, "sirenas"],
+  ["iro",       "Iro",       "h", 1.25, 1.08, "iro"],
+  ["melantio",  "Melantio",  "h", 1.1,  1.05, "melantio|cabrero"],
+  ["melanto",   "Melanto",   "m", 1.2,  1.05, "melanto"],
+  ["filetio",   "Filetio",   "h", 0.88, 0.95, "filetio|boyero"],
+  ["teoclimeno","Teoclímeno","h", 0.75, 0.88, "teoclimeno|haliterses"],
+  ["demodoco",  "Demódoco",  "h", 0.9,  0.9,  "demodoco|femio"],
+  ["pisistrato","Pisístrato","h", 1.12, 1.0,  "pisistrato"],
+  ["elpenor",   "Elpénor",   "h", 1.05, 0.95, "elpenor"],
+  ["eupites",   "Eupites",   "h", 0.75, 0.95, "eupites"],
+  ["medonte",   "Medonte",   "h", 1.0,  1.0,  "medonte"]
+].map(([id, nombre, g, tono, vel, alias]) => ({ id, nombre, g, tono, vel, re: new RegExp("\\b(" + alias + ")\\b", "g") }));
+const PJID = Object.fromEntries(PJ.map(x => [x.id, x]));
+PJID.otro = { id: "otro", nombre: "", g: "h", tono: 1.05, vel: 1 };
+const VERBO = /\b(dij\w*|habl\w*|respond\w*|contest\w*|exclam\w*|pregunt\w*|repus\w*|replic\w*|increp\w*|grit\w*|oro|rog\w*|suplic\w*|uso de la palabra|usar de la palabra|razones|palabras|diciendo|interpel\w*|amonest\w*|vocifer\w*|amenaz\w*|decia|aconsej\w*|empezo|pidi\w*|pidio|anadi\w*|prosigui\w*|insta\w*|oro|imploro)\b/g;
+const PRIMERA = /^(dije|dijele|dijeles|hable|hablele|hableles|respondi|respondile|conteste|contestele|exclame|pregunte|preguntele|repuse|replique|grite|suplique|rogue)$/;
+// Un nombre precedido de "a", "al", "hijo de"... es a quien se habla o de quien se habla, no quien habla.
+const OBJETO = /\b(al|a|hijo de|hija de|esposa de|contra)\s+(\S+\s+){0,2}$/;
+function nombresEn(w) {
+  const ns = [];
+  for (const pj of PJ) for (const m of w.matchAll(pj.re)) {
+    if (OBJETO.test(w.slice(Math.max(0, m.index - 30), m.index))) continue;
+    ns.push({ i: m.index, e: m.index + m[0].length, id: pj.id });
+  }
+  return ns.sort((a, b) => a.i - b.i);
+}
+const limpiaFrase = (t) => sinAcento(t).toLowerCase().replace(/\ba su vez\b|\bde nuevo\b|\ba seguida\b/g, (m) => " ".repeat(m.length));
+
+// Adivina quién va a hablar a partir de la narración que precede a las comillas «.
+// prev: narración desde la última comilla; todo: texto reciente (para saber a quién se refiere "él").
+function atribuir(prev, narrador, recientes, todo) {
+  const otro = () => {   // sujeto no nombrado ("y él me respondió"): el último personaje mencionado que no acaba de hablar
+    const ns = nombresEn(limpiaFrase(todo.slice(-3500)));
+    for (let i = ns.length - 1; i >= 0; i--) if (ns[i].id !== recientes[0] && ns[i].id !== narrador) return ns[i].id;
+    return recientes[1] || "otro";
+  };
+  const sent = limpiaFrase(prev.slice(-600)).split(/(?<=[.!?;])\s+/);
+  for (let k = 1; k <= Math.min(3, sent.length); k++) {
+    const w = sent.slice(-k).join(" ");
+    const vs = [...w.matchAll(VERBO)], ns = nombresEn(w);
+    // "les dije", "le respondí": habla quien está contando la historia (Ulises en los cantos IX-XII, etc.)
+    if (k === 1 && narrador) {
+      const fp = vs.filter(v => PRIMERA.test(v[0])).pop();
+      if (fp && !ns.some(n => n.i > fp.index)) return narrador;
+    }
+    if (vs.length && ns.length) {
+      let best = null, bd = 1e9;
+      for (const v of vs) {
+        const vi = v.index, ve = vi + v[0].length;
+        for (const n of ns) { const d = n.i >= ve ? n.i - ve : (vi - n.e) + 15; if (d >= 0 && d < bd) { bd = d; best = n; } }
+      }
+      if (best && bd < 140) return best.id;
+    }
+    if (vs.length && !ns.length) return otro();
+    if (ns.length) return ns[ns.length - 1].id;
+  }
+  return otro();
+}
+
+// Recorre el libro entero y divide cada párrafo en partes de narrador y de personaje.
+// Las comillas « » marcan los diálogos; un párrafo que empieza con » sigue el discurso anterior.
+let SEGS = null;
+function prepararPersonajes() {
+  if (SEGS) return;
+  SEGS = {};
+  let pila = [], prev = "", recientes = [], todo = "", fondo = null;
+  const nuevo = (id) => { recientes = [id, ...recientes.filter(x => x !== id)].slice(0, 4); };
+  for (let p = 1; p <= N; p++) {
+    const its = analizar(p); SEGS[p] = {};
+    its.forEach((it, idx) => {
+      if (p < 11 || p > 331) { pila = []; prev = ""; SEGS[p][it.b] = [{ t: it.raw, who: null }]; return; }
+      if (it.titulo) { prev = ""; SEGS[p][it.b] = [{ t: it.raw, who: null }]; return; } // el relato de Ulises sigue a través de los cantos
+      const s = it.raw, segs = [];
+      const cont = idx === 0 && p > 1 && sigue(analizar(p - 1).slice(-1)[0], it);
+      let i0 = 0, cur = "";
+      if (!cont) {
+        const m = /^\s*/.exec(s)[0].length, ch = s[m];
+        if (ch === "»") { if (!pila.length && fondo) pila = [fondo]; i0 = m + 1; } // sigue el mismo discurso
+        else if (ch === "«") pila = pila.slice(0, 1);
+        else pila = [];
+      }
+      let quien = pila.length ? pila[pila.length - 1] : null;
+      const flush = () => { if (cur.trim()) segs.push({ t: cur, who: quien }); cur = ""; };
+      for (let i = i0; i < s.length; i++) {
+        const c = s[i];
+        if (c === "«") {
+          flush();
+          const id = atribuir(prev, pila[0] || null, recientes, todo);
+          pila.push(id); if (pila.length > 3) pila.splice(1, 1); fondo = pila[0];
+          nuevo(id); quien = id; prev = ""; cur = c;
+        } else if (c === "»") {
+          cur += c; flush();
+          pila.pop(); quien = pila.length ? pila[pila.length - 1] : null; prev = "";
+        } else {
+          cur += c; prev += c;
+          if (pila.length <= 1) todo += c; // los nombres dichos dentro de un diálogo no cuentan para saber a quién se refiere "él"
+          if (prev.length > 1200) prev = prev.slice(-700);
+          if (todo.length > 6000) todo = todo.slice(-4000);
+        }
+      }
+      flush();
+      SEGS[p][it.b] = segs;
+    });
+  }
+}
+
+// Frases de una página, cada una con quién la dice. Una frase cortada por el cambio de página se lee entera al empezar la siguiente.
 function trozos(p) {
-  const its = analizar(p).map(x => ({ ...x })), out = [];
+  prepararPersonajes();
+  const its = analizar(p), out = [];
+  const segsDe = (pp, it) => (SEGS[pp][it.b] || [{ t: it.raw, who: null }]);
+  let carry = null;
   if (p > 1 && its.length) {
     const prev = analizar(p - 1), last = prev[prev.length - 1];
     if (sigue(last, its[0])) {
-      const fr = frases(last.txt), sep = (/\s$/.test(last.raw) || /^\s/.test(its[0].raw)) ? " " : "";
-      its[0].txt = fr[fr.length - 1] + sep + its[0].txt;
+      const sg = segsDe(p - 1, last), fr = frases(sg[sg.length - 1].t.replace(/\s+/g, " ").trim());
+      carry = { t: fr[fr.length - 1] || "", sep: (/\s$/.test(last.raw) || /^\s/.test(its[0].raw)) ? " " : "" };
     }
   }
   its.forEach((it, idx) => {
-    let fr = frases(it.txt);
-    if (idx === its.length - 1 && p < N && sigue(analizar(p)[idx], analizar(p + 1)[0]) && fr.length) fr = fr.slice(0, -1);
-    out.push(...recitar(fr, { p, b: it.b, titulo: it.titulo }));
+    const sg = segsDe(p, it).map(x => ({ ...x }));
+    if (idx === 0 && carry && sg.length) sg[0].t = carry.t + carry.sep + sg[0].t.replace(/^\s+/, "");
+    const corta = idx === its.length - 1 && p < N && sigue(it, analizar(p + 1)[0]);
+    sg.forEach((x, j) => {
+      let fr = frases(x.t.replace(/\s+/g, " ").trim());
+      if (corta && j === sg.length - 1 && fr.length) fr = fr.slice(0, -1);
+      const r = recitar(fr, { p, b: it.b, titulo: it.titulo, who: x.who });
+      if (j < sg.length - 1 && r.length) r[r.length - 1].pausa = Math.min(r[r.length - 1].pausa, PAUSAS[estilo].frase);
+      out.push(...r);
+    });
   });
   return out;
 }
@@ -674,6 +827,17 @@ function llenarVoces() {
 if (synth) { llenarVoces(); synth.addEventListener?.("voiceschanged", llenarVoces); }
 $("#vVel").value = String([0.7, 0.8, 0.88, 1, 1.15].reduce((a, b) => Math.abs(b - vel) < Math.abs(a - vel) ? b : a));
 
+// Voces de personajes: los hombres usan la voz de hombre elegida (u otra de hombre) y las mujeres una de mujer,
+// preferiblemente del mismo país que la del narrador; luego cada uno cambia de tono y velocidad.
+let personajes = store.get("personajes", true);
+function vozPara(g) {
+  const narr = vozActual(); if (!narr) return null;
+  const quiere = g === "h" ? esHombre : (v) => !esHombre(v);
+  if (quiere(narr)) return narr;
+  const region = (v) => v.lang.slice(0, 5).toLowerCase() === narr.lang.slice(0, 5).toLowerCase() ? 1 : 0;
+  return voces().filter(quiere).sort((a, b) => (region(b) - region(a)) || (puntos(b) - puntos(a)))[0] || narr;
+}
+
 // Adapta la ortografía de 1910 y la puntuación para que la voz suene natural (el texto en pantalla no cambia).
 const ANTIGUAS = [["á","a"],["Á","A"],["é","e"],["É","E"],["ó","o"],["Ó","O"],["fué","fue"],["Fué","Fue"],["fuí","fui"],
   ["dió","dio"],["Dió","Dio"],["vió","vio"],["Vió","Vio"],["pié","pie"],["rió","rio"],["fió","fio"],["huí","hui"]]
@@ -690,8 +854,17 @@ function decir() {
   const c = voz.cola[voz.i];
   if (c.on) c.on();
   const u = new SpeechSynthesisUtterance(prosa(c.text));
-  const v = vozActual(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
-  if (estilo === "poeta") { u.rate = vel * 0.9; u.pitch = 0.8; } else { u.rate = vel; u.pitch = 0.9; }
+  const hablado = prosa(c.text);
+  situarFrase(c, hablado);
+  u.onboundary = (e) => {
+    if ((e.name && e.name !== "word") || voz.u !== u) return;
+    const w = (hablado.slice(e.charIndex).match(/^[\p{L}\p{N}]+/u) || [])[0];
+    if (w) marcarPalabra(c, normal(w));
+  };
+  const pj = personajes && c.who ? PJID[c.who] : null;
+  const v = pj ? vozPara(pj.g) : vozActual(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
+  if (pj) { u.rate = vel * pj.vel * (estilo === "poeta" ? 0.95 : 1); u.pitch = pj.tono; }
+  else if (estilo === "poeta") { u.rate = vel * 0.9; u.pitch = 0.8; } else { u.rate = vel; u.pitch = 0.9; }
   u.onend = () => {
     if (u.cancelado || voz.u !== u) return;
     voz.errores = 0; voz.i++;
@@ -710,6 +883,7 @@ function hablar(cola, sig, fuente) {
   uiVoz(); setTimeout(decir, 80);
 }
 function pararVoz() {
+  borrarPalabra();
   cortar(); Object.assign(voz, { activo: false, pausa: false, cola: [], sig: null });
   resaltar(null); document.querySelectorAll("#resumen .leyendo").forEach(a => a.classList.remove("leyendo")); uiVoz();
 }
@@ -722,6 +896,54 @@ function uiVoz() {
   $("#vIcon").innerHTML = voz.pausa ? '<path d="M7 4l13 8-13 8z"/>' : '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>';
   $("#vEstado").textContent = voz.etiqueta + (voz.pausa ? " · pausa" : "");
 }
+// =================== RESALTADO PALABRA A PALABRA ===================
+// La voz avisa de cada palabra que pronuncia (evento "boundary"); se busca esa palabra en el párrafo de la
+// pantalla y se marca con la API de resaltado de CSS, sin tocar el texto. Si la voz no avisa, queda marcado el párrafo.
+const normal = (t) => sinAcento(t).toLowerCase();
+const OMITIR = ".num, a[id^='FNanchor'], .captiond";
+const cachePal = new WeakMap();
+const ptrs = {};
+function palabrasDe(el) {
+  let w = cachePal.get(el); if (w) return w;
+  w = [];
+  const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT,
+    { acceptNode: (n) => n.parentElement.closest(OMITIR) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  let n;
+  while ((n = tw.nextNode())) for (const m of n.data.matchAll(/[\p{L}\p{N}]+/gu)) w.push({ n, s: m.index, e: m.index + m[0].length, k: normal(m[0]) });
+  cachePal.set(el, w); return w;
+}
+function bloqueVivo(c) {
+  if (c.elem) return c.elem();
+  if (c.p == null) return null;
+  const t = book.querySelector(`.slot:not(.face) > .paper[data-p="${c.p}"] .txt`) || book.querySelector(`.paper[data-p="${c.p}"] .txt`);
+  return t ? hojas(t)[c.b] : null;
+}
+const claveDe = (c) => c.key || (c.p + ":" + c.b);
+function situarFrase(c, hablado) {
+  const el = bloqueVivo(c); if (!el) return;
+  const ws = palabrasDe(el), k = claveDe(c);
+  const toks = (normal(hablado).match(/[\p{L}\p{N}]+/gu) || []).slice(0, 3);
+  if (!toks.length) return;
+  const busca = (desde) => { for (let i = desde; i <= ws.length - toks.length; i++) if (toks.every((t, j) => ws[i + j].k === t)) return i; return -1; };
+  let i = busca(ptrs[k] || 0); if (i < 0) i = busca(0);
+  if (i >= 0) ptrs[k] = i;
+}
+function marcarPalabra(c, k) {
+  if (!window.CSS || !CSS.highlights || typeof Highlight === "undefined") return;
+  const el = bloqueVivo(c); if (!el) return;
+  const ws = palabrasDe(el), key = claveDe(c), ptr = ptrs[key] || 0;
+  for (let i = ptr; i < Math.min(ws.length, ptr + 8); i++) {
+    if (ws[i].k !== k) continue;
+    const r = new Range(); r.setStart(ws[i].n, ws[i].s); r.setEnd(ws[i].n, ws[i].e);
+    CSS.highlights.set("palabra", new Highlight(r));
+    ptrs[key] = i + 1;
+    const caja = el.closest(".txt.scroll, #resumen");
+    if (caja) { const b = r.getBoundingClientRect(), cb = caja.getBoundingClientRect(); if (b.bottom > cb.bottom - 40 || b.top < cb.top + 40) el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+    return;
+  }
+}
+function borrarPalabra() { if (window.CSS && CSS.highlights) CSS.highlights.delete("palabra"); }
+
 function resaltar(c) { resaltado = c ? { p: c.p, b: c.b } : null; book.querySelectorAll(".txt .leyendo").forEach(e => e.classList.remove("leyendo")); aplicarResaltado(book); }
 function aplicarResaltado(root) {
   if (!resaltado) return;
@@ -737,7 +959,7 @@ function leerLibro(p) {
   const cola = trozos(p);
   cola.forEach(c => c.on = () => {
     if (!seVe(c.p)) ir(c.p, true, true);
-    resaltar(c); voz.etiqueta = `Página ${c.p}`; uiVoz();
+    resaltar(c); voz.etiqueta = `Página ${c.p}` + (personajes && c.who && PJID[c.who].nombre ? ` · ${PJID[c.who].nombre}` : ""); uiVoz();
   });
   hablar(cola, () => p < N ? leerLibro(p + 1) : (pararVoz(), toast("Fin del libro")), "libro");
 }
@@ -753,6 +975,11 @@ $("#vAnt").onclick = () => saltarFrase(-1);
 $("#vSig").onclick = () => saltarFrase(1);
 $("#vCerrar").onclick = pararVoz;
 $("#vVel").onchange = (e) => { vel = +e.target.value; store.set("vel2", vel); reiniciarFrase(); };
+$("#vPj").classList.toggle("on", personajes);
+$("#vPj").onclick = () => {
+  personajes = !personajes; store.set("personajes", personajes); $("#vPj").classList.toggle("on", personajes);
+  toast(personajes ? "Voces de personajes activadas" : "Todo con la voz del narrador"); reiniciarFrase();
+};
 $("#vEstilo").value = estilo;
 $("#vEstilo").onchange = (e) => {
   estilo = e.target.value; store.set("estilo", estilo);
@@ -793,7 +1020,7 @@ function oirResumen(lista) {
       voz.etiqueta = i < 0 ? "Resumen" : "Resumen · " + R.cantos[i].t; uiVoz();
     };
     if (i >= 0) cola.push({ text: `Canto ${R.cantos[i].n}.`, on, pausa: 800 }, { text: R.cantos[i].s + ".", on, pausa: 1400 });
-    const t = recitar(frases(i < 0 ? R.intro : R.cantos[i].r), { on });
+    const t = recitar(frases(i < 0 ? R.intro : R.cantos[i].r), { on, key: "r" + i, elem: () => i < 0 ? $("#rIntro") : $("#rc" + i + " p") });
     t[t.length - 1].pausa = 2000;
     cola.push(...t);
   }
@@ -825,7 +1052,8 @@ $("#mResumen").onclick = () => { ocultarInicio(); abrirResumen(); };
 $("#mVoz").onclick = () => { ocultarInicio(); alternarVoz(); };
 
 let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { medir(); dibujar(); }, 120); });
-const arrancar = () => { medir(); dibujar(); if (/libro/.test(location.hash)) ocultarInicio(); else mostrarInicio(); };
+const sinMenu = /libro/.test(location.hash);
+const arrancar = () => { medir(); dibujar(); if (sinMenu) ocultarInicio(); else mostrarInicio(); };
 document.fonts ? document.fonts.ready.then(arrancar) : arrancar();
 setTimeout(() => { if (!book.children.length) arrancar(); }, 1500);
 })();
