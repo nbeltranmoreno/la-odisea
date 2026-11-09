@@ -760,6 +760,8 @@ function trozos(p) {
       carry = { t: fr[fr.length - 1] || "", sep: (/\s$/.test(last.raw) || /^\s/.test(its[0].raw)) ? " " : "" };
     }
   }
+  // palabras de la frase que vienen de la página anterior: se leen pero no se marcan en esta página
+  let resto = carry ? contarPalabras(carry.t) - (carry.sep ? 0 : 1) : 0; // palabra partida ("dete-nido"): se marca aquí
   its.forEach((it, idx) => {
     const sg = segsDe(p, it).map(x => ({ ...x }));
     if (idx === 0 && carry && sg.length) sg[0].t = carry.t + carry.sep + sg[0].t.replace(/^\s+/, "");
@@ -768,6 +770,8 @@ function trozos(p) {
       let fr = frases(x.t.replace(/\s+/g, " ").trim());
       if (corta && j === sg.length - 1 && fr.length) fr = fr.slice(0, -1);
       const r = recitar(fr, { p, b: it.b, titulo: it.titulo, who: x.who });
+      if (j === 0 && r.length) r[0].ini = true; // primera frase del párrafo: el resaltado empieza desde el principio
+      if (idx === 0 && resto > 0) for (const c of r) { if (resto <= 0) break; c.saltar = Math.min(resto, contarPalabras(c.text)); resto -= c.saltar; }
       if (j < sg.length - 1 && r.length) r[r.length - 1].pausa = Math.min(r[r.length - 1].pausa, PAUSAS[estilo].frase);
       out.push(...r);
     });
@@ -856,10 +860,13 @@ function decir() {
   const u = new SpeechSynthesisUtterance(prosa(c.text));
   const hablado = prosa(c.text);
   situarFrase(c, hablado);
+  let nPal = 0;
   u.onboundary = (e) => {
     if ((e.name && e.name !== "word") || voz.u !== u) return;
     const w = (hablado.slice(e.charIndex).match(/^[\p{L}\p{N}]+/u) || [])[0];
-    if (w) marcarPalabra(c, normal(w));
+    if (!w) return;
+    if (nPal++ < (c.saltar || 0)) return; // palabra de la página anterior
+    marcarPalabra(c, normal(w));
   };
   const pj = personajes && c.who ? PJID[c.who] : null;
   const v = pj ? vozPara(pj.g) : vozActual(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
@@ -919,10 +926,13 @@ function bloqueVivo(c) {
   return t ? hojas(t)[c.b] : null;
 }
 const claveDe = (c) => c.key || (c.p + ":" + c.b);
+function contarPalabras(t) { return (normal(prosa(t)).match(/[\p{L}\p{N}]+/gu) || []).length; }
 function situarFrase(c, hablado) {
+  const k = claveDe(c);
+  if (c.ini) ptrs[k] = 0;
   const el = bloqueVivo(c); if (!el) return;
-  const ws = palabrasDe(el), k = claveDe(c);
-  const toks = (normal(hablado).match(/[\p{L}\p{N}]+/gu) || []).slice(0, 3);
+  const ws = palabrasDe(el);
+  const toks = (normal(hablado).match(/[\p{L}\p{N}]+/gu) || []).slice(c.saltar || 0, (c.saltar || 0) + 3);
   if (!toks.length) return;
   const busca = (desde) => { for (let i = desde; i <= ws.length - toks.length; i++) if (toks.every((t, j) => ws[i + j].k === t)) return i; return -1; };
   let i = busca(ptrs[k] || 0); if (i < 0) i = busca(0);
@@ -932,8 +942,11 @@ function marcarPalabra(c, k) {
   if (!window.CSS || !CSS.highlights || typeof Highlight === "undefined") return;
   const el = bloqueVivo(c); if (!el) return;
   const ws = palabrasDe(el), key = claveDe(c), ptr = ptrs[key] || 0;
-  for (let i = ptr; i < Math.min(ws.length, ptr + 8); i++) {
-    if (ws[i].k !== k) continue;
+  // busca la palabra cerca de donde va; si se ha perdido, una palabra larga permite volver a encontrar el sitio
+  const hasta = Math.min(ws.length, ptr + (k.length >= 5 ? 60 : 8));
+  for (let i = ptr; i < hasta; i++) {
+    const partida = i === ptr && ws[i].k.length >= 2 && k.length > ws[i].k.length && k.endsWith(ws[i].k);
+    if (ws[i].k !== k && !partida) continue;
     const r = new Range(); r.setStart(ws[i].n, ws[i].s); r.setEnd(ws[i].n, ws[i].e);
     CSS.highlights.set("palabra", new Highlight(r));
     ptrs[key] = i + 1;
@@ -956,6 +969,7 @@ function seVe(p) { return doble ? caras(pliegoDe(pagina)).includes(p) : pagina =
 function leerLibro(p) {
   if (!synth) { toast("Este navegador no puede leer en voz alta"); return; }
   p = Math.max(1, Math.min(N, p));
+  for (const k in ptrs) if (k.startsWith(p + ":")) delete ptrs[k];
   const cola = trozos(p);
   cola.forEach(c => c.on = () => {
     if (!seVe(c.p)) ir(c.p, true, true);
