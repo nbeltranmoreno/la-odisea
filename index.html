@@ -799,7 +799,9 @@ function versificar(f) {
 function recitar(fr, extra) {
   const P = PAUSAS[estilo], out = [];
   fr.forEach((f, k) => {
-    const versos = estilo === "poeta" && !extra.titulo ? versificar(f) : [f];
+    // las voces de Google en Chrome se cortan con frases largas: con ellas se lee siempre en trozos cortos
+    const enRed = synth && vozActual() && vozActual().localService === false && !/natural|online/i.test(vozActual().name);
+    const versos = (estilo === "poeta" || enRed) && !extra.titulo ? versificar(f) : [f];
     versos.forEach((v, j) => {
       let pausa = P.verso;
       if (j === versos.length - 1) pausa = extra.titulo ? P.titulo : k === fr.length - 1 ? P.parrafo : /[.!?…»]\s*$/.test(f) ? P.frase : P.verso;
